@@ -234,3 +234,191 @@ const DISC_INTERFACE Mocha_usb_disc_interface = {
         Mocha_usb_writeSectors,
         Mocha_usb_clearStatus,
         Mocha_usb_shutdown};
+
+/* ------------------------------------------------------------------------
+ * Mocha_usb1_disc_interface / Mocha_usb2_disc_interface
+ *
+ * The two USB port groups Cafe OS actually exposes ("/dev/usb01" = rear
+ * ports, "/dev/usb02" = front ports) as fully independent DISC_INTERFACEs,
+ * each with its own fd state, so a device sitting in one group can never
+ * hide the other. Unlike Mocha_usb_disc_interface above, there is no
+ * fallback between them - callers that want both port groups probed call
+ * startup() on each interface themselves. Both share the same underlying
+ * /dev/fsa client (ref-counted) since opening it twice is unnecessary and
+ * FSAEx_RawOpenEx() already hands back independent per-path handles from
+ * one client.
+ * ------------------------------------------------------------------------ */
+
+static int fsaFdUsbShared      = 0;
+static int fsaFdUsbSharedRefs  = 0;
+static int usb1Fd              = 0;
+static int usb2Fd              = 0;
+static int usbSlotsInitialized = 0;
+
+static void Mocha_usb_slots_initialize(void) {
+    if (usbSlotsInitialized == 0) {
+        usbSlotsInitialized  = 1;
+        fsaFdUsbShared       = -1;
+        fsaFdUsbSharedRefs   = 0;
+        usb1Fd               = -1;
+        usb2Fd               = -1;
+    }
+}
+
+static bool Mocha_usb_slots_fsa_acquire(void) {
+    Mocha_usb_slots_initialize();
+
+    if (fsaFdUsbShared < 0) {
+        fsaFdUsbShared = IOS_Open("/dev/fsa", IOS_OPEN_READWRITE);
+        if (fsaFdUsbShared >= 0 && Mocha_UnlockFSClientEx(fsaFdUsbShared) != MOCHA_RESULT_SUCCESS) {
+            IOS_Close(fsaFdUsbShared);
+            fsaFdUsbShared = -1;
+        }
+    }
+
+    if (fsaFdUsbShared >= 0) {
+        fsaFdUsbSharedRefs++;
+        return true;
+    }
+
+    return false;
+}
+
+static void Mocha_usb_slots_fsa_release(void) {
+    if (fsaFdUsbSharedRefs > 0) {
+        fsaFdUsbSharedRefs--;
+    }
+
+    if (fsaFdUsbSharedRefs == 0 && fsaFdUsbShared >= 0) {
+        IOS_Close(fsaFdUsbShared);
+        fsaFdUsbShared = -1;
+    }
+}
+
+static bool Mocha_usb1_startup(void) {
+    if (usb1Fd >= 0) {
+        return true;
+    }
+    if (!Mocha_usb_slots_fsa_acquire()) {
+        return false;
+    }
+
+    int res = FSAEx_RawOpenEx(fsaFdUsbShared, "/dev/usb01", &usb1Fd);
+    if (res < 0) {
+        Mocha_usb_slots_fsa_release();
+        usb1Fd = -1;
+        return false;
+    }
+    return true;
+}
+
+static bool Mocha_usb1_isInserted(void) {
+    return usbSlotsInitialized && (fsaFdUsbShared >= 0) && (usb1Fd >= 0);
+}
+
+static bool Mocha_usb1_clearStatus(void) {
+    return true;
+}
+
+static bool Mocha_usb1_shutdown(void) {
+    if (!Mocha_usb1_isInserted()) {
+        return false;
+    }
+
+    FSAEx_RawCloseEx(fsaFdUsbShared, usb1Fd);
+    usb1Fd = -1;
+    Mocha_usb_slots_fsa_release();
+    return true;
+}
+
+static bool Mocha_usb1_readSectors(uint32_t sector, uint32_t numSectors, void *buffer) {
+    if (!Mocha_usb1_isInserted()) {
+        return false;
+    }
+
+    int res = FSAEx_RawReadEx(fsaFdUsbShared, buffer, 512, numSectors, sector, usb1Fd);
+    return (res >= 0);
+}
+
+static bool Mocha_usb1_writeSectors(uint32_t sector, uint32_t numSectors, const void *buffer) {
+    if (!Mocha_usb1_isInserted()) {
+        return false;
+    }
+
+    int res = FSAEx_RawWriteEx(fsaFdUsbShared, buffer, 512, numSectors, sector, usb1Fd);
+    return (res >= 0);
+}
+
+const DISC_INTERFACE Mocha_usb1_disc_interface = {
+        DEVICE_TYPE_WII_U_USB,
+        FEATURE_MEDIUM_CANREAD | FEATURE_MEDIUM_CANWRITE | FEATURE_WII_U_USB,
+        Mocha_usb1_startup,
+        Mocha_usb1_isInserted,
+        Mocha_usb1_readSectors,
+        Mocha_usb1_writeSectors,
+        Mocha_usb1_clearStatus,
+        Mocha_usb1_shutdown};
+
+static bool Mocha_usb2_startup(void) {
+    if (usb2Fd >= 0) {
+        return true;
+    }
+    if (!Mocha_usb_slots_fsa_acquire()) {
+        return false;
+    }
+
+    int res = FSAEx_RawOpenEx(fsaFdUsbShared, "/dev/usb02", &usb2Fd);
+    if (res < 0) {
+        Mocha_usb_slots_fsa_release();
+        usb2Fd = -1;
+        return false;
+    }
+    return true;
+}
+
+static bool Mocha_usb2_isInserted(void) {
+    return usbSlotsInitialized && (fsaFdUsbShared >= 0) && (usb2Fd >= 0);
+}
+
+static bool Mocha_usb2_clearStatus(void) {
+    return true;
+}
+
+static bool Mocha_usb2_shutdown(void) {
+    if (!Mocha_usb2_isInserted()) {
+        return false;
+    }
+
+    FSAEx_RawCloseEx(fsaFdUsbShared, usb2Fd);
+    usb2Fd = -1;
+    Mocha_usb_slots_fsa_release();
+    return true;
+}
+
+static bool Mocha_usb2_readSectors(uint32_t sector, uint32_t numSectors, void *buffer) {
+    if (!Mocha_usb2_isInserted()) {
+        return false;
+    }
+
+    int res = FSAEx_RawReadEx(fsaFdUsbShared, buffer, 512, numSectors, sector, usb2Fd);
+    return (res >= 0);
+}
+
+static bool Mocha_usb2_writeSectors(uint32_t sector, uint32_t numSectors, const void *buffer) {
+    if (!Mocha_usb2_isInserted()) {
+        return false;
+    }
+
+    int res = FSAEx_RawWriteEx(fsaFdUsbShared, buffer, 512, numSectors, sector, usb2Fd);
+    return (res >= 0);
+}
+
+const DISC_INTERFACE Mocha_usb2_disc_interface = {
+        DEVICE_TYPE_WII_U_USB,
+        FEATURE_MEDIUM_CANREAD | FEATURE_MEDIUM_CANWRITE | FEATURE_WII_U_USB,
+        Mocha_usb2_startup,
+        Mocha_usb2_isInserted,
+        Mocha_usb2_readSectors,
+        Mocha_usb2_writeSectors,
+        Mocha_usb2_clearStatus,
+        Mocha_usb2_shutdown};
