@@ -249,10 +249,10 @@ const DISC_INTERFACE Mocha_usb_disc_interface = {
  * one client.
  * ------------------------------------------------------------------------ */
 
-static int fsaFdUsbShared      = 0;
+static int fsaFdUsbShared      = -1;
 static int fsaFdUsbSharedRefs  = 0;
-static int usb1Fd              = 0;
-static int usb2Fd              = 0;
+static int usb1Fd              = -1;
+static int usb2Fd              = -1;
 static int usbSlotsInitialized = 0;
 
 static void Mocha_usb_slots_initialize(void) {
