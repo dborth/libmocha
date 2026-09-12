@@ -26,6 +26,7 @@
 #include "mocha/mocha.h"
 #include <coreinit/ios.h>
 #include <stdbool.h>
+#include <stdio.h>
 
 #define FSA_REF_SD  0x01
 #define FSA_REF_USB 0x02
