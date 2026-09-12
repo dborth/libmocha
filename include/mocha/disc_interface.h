@@ -68,18 +68,21 @@ typedef struct DISC_INTERFACE_STRUCT DISC_INTERFACE;
 #endif
 extern const DISC_INTERFACE Mocha_sdio_disc_interface;
 
-//! Rear USB port group ("/dev/usb01"). Independent fd/lifecycle from
-//! Mocha_usb2_disc_interface - both can be startup()/mounted concurrently.
+//! Mocha_usb1_disc_interface .. Mocha_usb4_disc_interface: four
+//! independent USB storage slots ("/dev/usb01".."/dev/usb04"), each its
+//! own fd/lifecycle - any can be startup()/mounted concurrently with any
+//! other. These are NOT fixed physical port groups: slot assignment tracks 
+//! attach order, not which port a device is in
 extern const DISC_INTERFACE Mocha_usb1_disc_interface;
-//! Front USB port group ("/dev/usb02"). Independent fd/lifecycle from
-//! Mocha_usb1_disc_interface - both can be startup()/mounted concurrently.
 extern const DISC_INTERFACE Mocha_usb2_disc_interface;
+extern const DISC_INTERFACE Mocha_usb3_disc_interface;
+extern const DISC_INTERFACE Mocha_usb4_disc_interface;
 
 //! Compat alias for existing callers that only know about one USB slot.
 //! Behaves exactly as before: opens /dev/usb01, falling back to /dev/usb02
 //! only if /dev/usb01 fails to open at all. New code should use
-//! Mocha_usb1_disc_interface / Mocha_usb2_disc_interface directly instead,
-//! so a device sitting in one physical port group can't hide the other.
+//! Mocha_usb1_disc_interface..Mocha_usb4_disc_interface directly instead,
+//! so a device in one slot can't hide another.
 extern const DISC_INTERFACE Mocha_usb_disc_interface;
 
 #ifdef __cplusplus

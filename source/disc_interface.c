@@ -236,23 +236,20 @@ const DISC_INTERFACE Mocha_usb_disc_interface = {
         Mocha_usb_shutdown};
 
 /* ------------------------------------------------------------------------
- * Mocha_usb1_disc_interface / Mocha_usb2_disc_interface
+ * Mocha_usb1_disc_interface .. Mocha_usb4_disc_interface
  *
- * The two USB port groups Cafe OS actually exposes ("/dev/usb01" = rear
- * ports, "/dev/usb02" = front ports) as fully independent DISC_INTERFACEs,
- * each with its own fd state, so a device sitting in one group can never
- * hide the other. Unlike Mocha_usb_disc_interface above, there is no
- * fallback between them - callers that want both port groups probed call
- * startup() on each interface themselves. Both share the same underlying
- * /dev/fsa client (ref-counted) since opening it twice is unnecessary and
- * FSAEx_RawOpenEx() already hands back independent per-path handles from
- * one client.
+ * Four independent DISC_INTERFACEs, each its own fd state, so a device
+ * claiming one slot can never hide another. These are NOT fixed physical
+ * port groups - real hardware testing showed /dev/usb01/02/etc. get
+ * assigned to whichever device attaches into that logical slot, not to a
+ * specific port.
  * ------------------------------------------------------------------------ */
+
+#define MOCHA_USB_SLOT_COUNT 4
 
 static int fsaFdUsbShared      = -1;
 static int fsaFdUsbSharedRefs  = 0;
-static int usb1Fd              = -1;
-static int usb2Fd              = -1;
+static int usbSlotFd[MOCHA_USB_SLOT_COUNT] = { -1, -1, -1, -1 };
 static int usbSlotsInitialized = 0;
 
 static void Mocha_usb_slots_initialize(void) {
@@ -260,8 +257,9 @@ static void Mocha_usb_slots_initialize(void) {
         usbSlotsInitialized  = 1;
         fsaFdUsbShared       = -1;
         fsaFdUsbSharedRefs   = 0;
-        usb1Fd               = -1;
-        usb2Fd               = -1;
+        for (int i = 0; i < MOCHA_USB_SLOT_COUNT; i++) {
+            usbSlotFd[i] = -1;
+        }
     }
 }
 
@@ -295,130 +293,93 @@ static void Mocha_usb_slots_fsa_release(void) {
     }
 }
 
-static bool Mocha_usb1_startup(void) {
-    if (usb1Fd >= 0) {
+//! slot is 0-based (0 -> "/dev/usb01", 1 -> "/dev/usb02", etc). Shared
+//! implementation behind the four thin per-slot trampolines below, which
+//! exist only because DISC_INTERFACE's function pointers take no context
+//! parameter, so each slot still needs its own set of real functions to
+//! hand to a DISC_INTERFACE struct.
+static bool Mocha_usb_slot_startup(int slot) {
+    if (usbSlotFd[slot] >= 0) {
         return true;
     }
     if (!Mocha_usb_slots_fsa_acquire()) {
         return false;
     }
 
-    int res = FSAEx_RawOpenEx(fsaFdUsbShared, "/dev/usb01", &usb1Fd);
+    char path[16];
+    snprintf(path, sizeof(path), "/dev/usb0%d", slot + 1);
+
+    int res = FSAEx_RawOpenEx(fsaFdUsbShared, path, &usbSlotFd[slot]);
     if (res < 0) {
         Mocha_usb_slots_fsa_release();
-        usb1Fd = -1;
+        usbSlotFd[slot] = -1;
         return false;
     }
     return true;
 }
 
-static bool Mocha_usb1_isInserted(void) {
-    return usbSlotsInitialized && (fsaFdUsbShared >= 0) && (usb1Fd >= 0);
+static bool Mocha_usb_slot_isInserted(int slot) {
+    return usbSlotsInitialized && (fsaFdUsbShared >= 0) && (usbSlotFd[slot] >= 0);
 }
 
-static bool Mocha_usb1_clearStatus(void) {
-    return true;
-}
-
-static bool Mocha_usb1_shutdown(void) {
-    if (!Mocha_usb1_isInserted()) {
+static bool Mocha_usb_slot_shutdown(int slot) {
+    if (!Mocha_usb_slot_isInserted(slot)) {
         return false;
     }
 
-    FSAEx_RawCloseEx(fsaFdUsbShared, usb1Fd);
-    usb1Fd = -1;
+    FSAEx_RawCloseEx(fsaFdUsbShared, usbSlotFd[slot]);
+    usbSlotFd[slot] = -1;
     Mocha_usb_slots_fsa_release();
     return true;
 }
 
-static bool Mocha_usb1_readSectors(uint32_t sector, uint32_t numSectors, void *buffer) {
-    if (!Mocha_usb1_isInserted()) {
+static bool Mocha_usb_slot_readSectors(int slot, uint32_t sector, uint32_t numSectors, void *buffer) {
+    if (!Mocha_usb_slot_isInserted(slot)) {
         return false;
     }
 
-    int res = FSAEx_RawReadEx(fsaFdUsbShared, buffer, 512, numSectors, sector, usb1Fd);
+    int res = FSAEx_RawReadEx(fsaFdUsbShared, buffer, 512, numSectors, sector, usbSlotFd[slot]);
     return (res >= 0);
 }
 
-static bool Mocha_usb1_writeSectors(uint32_t sector, uint32_t numSectors, const void *buffer) {
-    if (!Mocha_usb1_isInserted()) {
+static bool Mocha_usb_slot_writeSectors(int slot, uint32_t sector, uint32_t numSectors, const void *buffer) {
+    if (!Mocha_usb_slot_isInserted(slot)) {
         return false;
     }
 
-    int res = FSAEx_RawWriteEx(fsaFdUsbShared, buffer, 512, numSectors, sector, usb1Fd);
+    int res = FSAEx_RawWriteEx(fsaFdUsbShared, buffer, 512, numSectors, sector, usbSlotFd[slot]);
     return (res >= 0);
 }
 
-const DISC_INTERFACE Mocha_usb1_disc_interface = {
-        DEVICE_TYPE_WII_U_USB,
-        FEATURE_MEDIUM_CANREAD | FEATURE_MEDIUM_CANWRITE | FEATURE_WII_U_USB,
-        Mocha_usb1_startup,
-        Mocha_usb1_isInserted,
-        Mocha_usb1_readSectors,
-        Mocha_usb1_writeSectors,
-        Mocha_usb1_clearStatus,
-        Mocha_usb1_shutdown};
-
-static bool Mocha_usb2_startup(void) {
-    if (usb2Fd >= 0) {
-        return true;
-    }
-    if (!Mocha_usb_slots_fsa_acquire()) {
-        return false;
-    }
-
-    int res = FSAEx_RawOpenEx(fsaFdUsbShared, "/dev/usb02", &usb2Fd);
-    if (res < 0) {
-        Mocha_usb_slots_fsa_release();
-        usb2Fd = -1;
-        return false;
-    }
+static bool Mocha_usb_slot_clearStatus(int slot) {
+    (void)slot;
     return true;
 }
 
-static bool Mocha_usb2_isInserted(void) {
-    return usbSlotsInitialized && (fsaFdUsbShared >= 0) && (usb2Fd >= 0);
-}
+#define MOCHA_DEFINE_USB_SLOT(N, SLOT_INDEX)                                                           \
+    static bool Mocha_usb##N##_startup(void) { return Mocha_usb_slot_startup(SLOT_INDEX); }            \
+    static bool Mocha_usb##N##_isInserted(void) { return Mocha_usb_slot_isInserted(SLOT_INDEX); }       \
+    static bool Mocha_usb##N##_clearStatus(void) { return Mocha_usb_slot_clearStatus(SLOT_INDEX); }     \
+    static bool Mocha_usb##N##_shutdown(void) { return Mocha_usb_slot_shutdown(SLOT_INDEX); }           \
+    static bool Mocha_usb##N##_readSectors(uint32_t sector, uint32_t numSectors, void *buffer) {        \
+        return Mocha_usb_slot_readSectors(SLOT_INDEX, sector, numSectors, buffer);                     \
+    }                                                                                                   \
+    static bool Mocha_usb##N##_writeSectors(uint32_t sector, uint32_t numSectors, const void *buffer) { \
+        return Mocha_usb_slot_writeSectors(SLOT_INDEX, sector, numSectors, buffer);                    \
+    }                                                                                                   \
+    const DISC_INTERFACE Mocha_usb##N##_disc_interface = {                                             \
+            DEVICE_TYPE_WII_U_USB,                                                                     \
+            FEATURE_MEDIUM_CANREAD | FEATURE_MEDIUM_CANWRITE | FEATURE_WII_U_USB,                      \
+            Mocha_usb##N##_startup,                                                                    \
+            Mocha_usb##N##_isInserted,                                                                 \
+            Mocha_usb##N##_readSectors,                                                                \
+            Mocha_usb##N##_writeSectors,                                                                \
+            Mocha_usb##N##_clearStatus,                                                                \
+            Mocha_usb##N##_shutdown}
 
-static bool Mocha_usb2_clearStatus(void) {
-    return true;
-}
+MOCHA_DEFINE_USB_SLOT(1, 0);
+MOCHA_DEFINE_USB_SLOT(2, 1);
+MOCHA_DEFINE_USB_SLOT(3, 2);
+MOCHA_DEFINE_USB_SLOT(4, 3);
 
-static bool Mocha_usb2_shutdown(void) {
-    if (!Mocha_usb2_isInserted()) {
-        return false;
-    }
-
-    FSAEx_RawCloseEx(fsaFdUsbShared, usb2Fd);
-    usb2Fd = -1;
-    Mocha_usb_slots_fsa_release();
-    return true;
-}
-
-static bool Mocha_usb2_readSectors(uint32_t sector, uint32_t numSectors, void *buffer) {
-    if (!Mocha_usb2_isInserted()) {
-        return false;
-    }
-
-    int res = FSAEx_RawReadEx(fsaFdUsbShared, buffer, 512, numSectors, sector, usb2Fd);
-    return (res >= 0);
-}
-
-static bool Mocha_usb2_writeSectors(uint32_t sector, uint32_t numSectors, const void *buffer) {
-    if (!Mocha_usb2_isInserted()) {
-        return false;
-    }
-
-    int res = FSAEx_RawWriteEx(fsaFdUsbShared, buffer, 512, numSectors, sector, usb2Fd);
-    return (res >= 0);
-}
-
-const DISC_INTERFACE Mocha_usb2_disc_interface = {
-        DEVICE_TYPE_WII_U_USB,
-        FEATURE_MEDIUM_CANREAD | FEATURE_MEDIUM_CANWRITE | FEATURE_WII_U_USB,
-        Mocha_usb2_startup,
-        Mocha_usb2_isInserted,
-        Mocha_usb2_readSectors,
-        Mocha_usb2_writeSectors,
-        Mocha_usb2_clearStatus,
-        Mocha_usb2_shutdown};
+#undef MOCHA_DEFINE_USB_SLOT
