@@ -68,15 +68,14 @@ typedef struct DISC_INTERFACE_STRUCT DISC_INTERFACE;
 #endif
 extern const DISC_INTERFACE Mocha_sdio_disc_interface;
 
-//! Mocha_usb1_disc_interface .. Mocha_usb4_disc_interface: four
-//! independent USB storage slots ("/dev/usb01".."/dev/usb04"), each its
+//! Mocha_usb1_disc_interface .. Mocha_usb3_disc_interface: four
+//! independent USB storage slots ("/dev/usb01".."/dev/usb03"), each its
 //! own fd/lifecycle - any can be startup()/mounted concurrently with any
 //! other. These are NOT fixed physical port groups: slot assignment tracks 
 //! attach order, not which port a device is in
 extern const DISC_INTERFACE Mocha_usb1_disc_interface;
 extern const DISC_INTERFACE Mocha_usb2_disc_interface;
 extern const DISC_INTERFACE Mocha_usb3_disc_interface;
-extern const DISC_INTERFACE Mocha_usb4_disc_interface;
 
 //! Compat alias for existing callers that only know about one USB slot.
 //! Behaves exactly as before: opens /dev/usb01, falling back to /dev/usb02

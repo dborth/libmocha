@@ -237,7 +237,7 @@ const DISC_INTERFACE Mocha_usb_disc_interface = {
         Mocha_usb_shutdown};
 
 /* ------------------------------------------------------------------------
- * Mocha_usb1_disc_interface .. Mocha_usb4_disc_interface
+ * Mocha_usb1_disc_interface .. Mocha_usb3_disc_interface
  *
  * Four independent DISC_INTERFACEs, each its own fd state, so a device
  * claiming one slot can never hide another. These are NOT fixed physical
@@ -246,7 +246,7 @@ const DISC_INTERFACE Mocha_usb_disc_interface = {
  * specific port.
  * ------------------------------------------------------------------------ */
 
-#define MOCHA_USB_SLOT_COUNT 4
+#define MOCHA_USB_SLOT_COUNT 3
 
 static int fsaFdUsbShared      = -1;
 static int fsaFdUsbSharedRefs  = 0;
@@ -381,6 +381,5 @@ static bool Mocha_usb_slot_clearStatus(int slot) {
 MOCHA_DEFINE_USB_SLOT(1, 0);
 MOCHA_DEFINE_USB_SLOT(2, 1);
 MOCHA_DEFINE_USB_SLOT(3, 2);
-MOCHA_DEFINE_USB_SLOT(4, 3);
 
 #undef MOCHA_DEFINE_USB_SLOT
