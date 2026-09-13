@@ -250,7 +250,7 @@ const DISC_INTERFACE Mocha_usb_disc_interface = {
 
 static int fsaFdUsbShared      = -1;
 static int fsaFdUsbSharedRefs  = 0;
-static int usbSlotFd[MOCHA_USB_SLOT_COUNT] = { -1, -1, -1, -1 };
+static int usbSlotFd[MOCHA_USB_SLOT_COUNT] = { -1, -1, -1 };
 static int usbSlotsInitialized = 0;
 
 static void Mocha_usb_slots_initialize(void) {
